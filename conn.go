@@ -1,6 +1,8 @@
 package clickhouse
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -297,9 +299,18 @@ func (c *conn) buildRequest(ctx context.Context, query string, params []driver.V
 		method = http.MethodPost
 	}
 	c.log("query: ", query)
-	req, err := http.NewRequest(method, c.url.String(), strings.NewReader(query))
+
+	var reqBodyReader io.Reader = strings.NewReader(query)
+	if c.useGzipCompression {
+		reqBodyReader = gzipReader(reqBodyReader)
+	}
+
+	req, err := http.NewRequest(method, c.url.String(), reqBodyReader)
 	if err != nil {
 		return nil, err
+	}
+	if c.useGzipCompression {
+		req.Header.Set("Content-Encoding", "gzip")
 	}
 	// http.Transport ignores url.User argument, handle it here
 	if c.user != nil {
@@ -347,4 +358,30 @@ func (c *conn) prepare(query string) (*stmt, error) {
 		c.stmts = append(c.stmts, s)
 	}
 	return s, nil
+}
+
+func gzipReader(reader io.Reader) io.Reader {
+	var pipeR, pipeW = io.Pipe()
+	go func() {
+		var err error
+		defer func() {
+			_ = pipeW.CloseWithError(err)
+		}()
+		var bufw = bufio.NewWriter(pipeW)
+		var gzw *gzip.Writer
+		gzw, err = gzip.NewWriterLevel(bufw, gzip.BestSpeed)
+		if err != nil {
+			return
+		}
+		_, err = io.Copy(gzw, reader)
+		if err != nil {
+			return
+		}
+		err = gzw.Close()
+		if err != nil {
+			return
+		}
+		err = bufw.Flush()
+	}()
+	return pipeR
 }
