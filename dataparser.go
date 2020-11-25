@@ -5,14 +5,18 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var (
 	reflectTypeString      = reflect.TypeOf("")
 	reflectTypeTime        = reflect.TypeOf(time.Time{})
+	reflectTypeIPv4        = reflect.TypeOf(net.IP{})
+	reflectTypeIPv6        = reflect.TypeOf(net.IP{})
 	reflectTypeEmptyStruct = reflect.TypeOf(struct{}{})
 	reflectTypeInt8        = reflect.TypeOf(int8(0))
 	reflectTypeInt16       = reflect.TypeOf(int16(0))
@@ -61,7 +65,7 @@ func (p *nullableParser) Parse(s io.RuneScanner) (driver.Value, error) {
 }
 
 func readNumber(s io.RuneScanner) (string, error) {
-	var builder bytes.Buffer
+	var builder strings.Builder
 
 loop:
 	for {
@@ -82,7 +86,7 @@ loop:
 }
 
 func readUnquoted(s io.RuneScanner, length int) (string, error) {
-	var builder bytes.Buffer
+	var builder strings.Builder
 
 	runesRead := 0
 loop:
@@ -158,6 +162,44 @@ func (p *dateTimeParser) Parse(s io.RuneScanner) (driver.Value, error) {
 
 func (p *dateTimeParser) Type() reflect.Type {
 	return reflectTypeTime
+}
+
+type ipv4Parser struct {
+}
+
+func (p *ipv4Parser) Parse(s io.RuneScanner) (driver.Value, error) {
+	str := readRaw(s).String()
+	ip := net.ParseIP(str)
+	if ip != nil {
+		ip = ip.To4()
+	}
+	if ip == nil {
+		return nil, fmt.Errorf("failed to read IPv4: %s", str)
+	}
+	return ip, nil
+}
+
+func (p *ipv4Parser) Type() reflect.Type {
+	return reflectTypeIPv4
+}
+
+type ipv6Parser struct {
+}
+
+func (p *ipv6Parser) Parse(s io.RuneScanner) (driver.Value, error) {
+	str := readRaw(s).String()
+	ip := net.ParseIP(str)
+	if ip != nil {
+		ip = ip.To16()
+	}
+	if ip == nil {
+		return nil, fmt.Errorf("failed to read IPv6: %s", str)
+	}
+	return ip, nil
+}
+
+func (p *ipv6Parser) Type() reflect.Type {
+	return reflectTypeIPv6
 }
 
 type arrayParser struct {
@@ -427,6 +469,10 @@ func newDataParser(t *TypeDesc, unquote bool, opt *DataParserOptions) (DataParse
 			loc = opt.Location
 		}
 		return newDateTimeParser(timeFormat, loc, unquote)
+	case "IPv4":
+		return &ipv4Parser{}, nil
+	case "IPv6":
+		return &ipv6Parser{}, nil
 	case "UInt8":
 		return &intParser{false, 8}, nil
 	case "UInt16":

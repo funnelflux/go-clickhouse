@@ -1,8 +1,8 @@
 package clickhouse
 
 import (
+	"bytes"
 	"database/sql/driver"
-	"encoding/csv"
 	"fmt"
 	"io"
 	"reflect"
@@ -11,24 +11,28 @@ import (
 )
 
 func newTextRows(c *conn, body io.ReadCloser, location *time.Location, useDBLocation bool) (*textRows, error) {
-	tsvReader := csv.NewReader(body)
-	tsvReader.Comma = '\t'
-	tsvReader.LazyQuotes = true
+	tsv := tsvReader{r: body}
 
-	columns, err := tsvReader.Read()
-	if err != nil {
-		return nil, err
-	}
-
-	types, err := tsvReader.Read()
-	if err != nil {
-		return nil, err
-	}
-	for i := range types {
-		types[i], err = readUnquoted(strings.NewReader(types[i]), 0)
-		if err != nil {
-			return nil, err
+	var columns []string
+	if tsv.NextRow() {
+		for tsv.HasCols() {
+			columns = append(columns, tsv.String())
 		}
+	}
+
+	var types []string
+	if tsv.NextRow() {
+		for tsv.HasCols() {
+			if v, err := readUnquoted(strings.NewReader(tsv.String()), 0); err != nil {
+				return nil, err
+			} else {
+				types = append(types, v)
+			}
+		}
+	}
+
+	if err := tsv.Error(); err != nil {
+		return nil, err
 	}
 
 	parsers := make([]DataParser, len(types), len(types))
@@ -50,7 +54,7 @@ func newTextRows(c *conn, body io.ReadCloser, location *time.Location, useDBLoca
 	return &textRows{
 		c:        c,
 		respBody: body,
-		tsv:      tsvReader,
+		tsv:      tsv,
 		columns:  columns,
 		types:    types,
 		parsers:  parsers,
@@ -60,7 +64,7 @@ func newTextRows(c *conn, body io.ReadCloser, location *time.Location, useDBLoca
 type textRows struct {
 	c        *conn
 	respBody io.ReadCloser
-	tsv      *csv.Reader
+	tsv      tsvReader
 	columns  []string
 	types    []string
 	parsers  []DataParser
@@ -76,13 +80,14 @@ func (r *textRows) Close() error {
 }
 
 func (r *textRows) Next(dest []driver.Value) error {
-	row, err := r.tsv.Read()
-	if err != nil {
+	r.tsv.NextRow()
+	if err := r.tsv.Error(); err != nil {
 		return err
 	}
 
-	for i, s := range row {
-		reader := strings.NewReader(s)
+	i := 0
+	for r.tsv.HasCols() {
+		reader := bytes.NewReader(r.tsv.Bytes())
 		v, err := r.parsers[i].Parse(reader)
 		if err != nil {
 			return err
@@ -91,9 +96,10 @@ func (r *textRows) Next(dest []driver.Value) error {
 			return fmt.Errorf("trailing data after parsing the value")
 		}
 		dest[i] = v
+		i++
 	}
 
-	return nil
+	return r.tsv.Error()
 }
 
 // ColumnTypeScanType implements the driver.RowsColumnTypeScanType
