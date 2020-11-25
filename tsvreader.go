@@ -10,6 +10,7 @@ import (
 type tsvReader struct {
 	row       int
 	col       int
+	maxCol    int
 	readBuf   [16 * 1024]byte // fixed read buffer
 	readSlice []byte          // read slice
 	rowBytes  []byte          // row buffer
@@ -38,16 +39,21 @@ func (r *tsvReader) NextRow() bool {
 		return false
 	}
 
+	if r.maxCol < r.col {
+		r.maxCol = r.col
+	}
+
 	r.row++
 	r.col = 0
 	r.rowBytes = r.rowBytes[:0]
 	r.rowSlice = nil
 
 	for {
-		if p := bytes.IndexByte(r.readSlice, '\n'); p == 0 { // newline found, but line is empty, skip it
-			r.readSlice = r.readSlice[1:]
-			continue
-		} else if p > 0 { // end of the row is found in read buffer
+		if p := bytes.IndexByte(r.readSlice, '\n'); p >= 0 { // end of the row is found in read buffer
+			if r.maxCol > 1 && p == 0 { // skip empty line if there are more than one column
+				r.readSlice = r.readSlice[1:]
+				continue
+			}
 			r.rowBytes = append(r.rowBytes, r.readSlice[0:p]...) // append data till newline
 			r.rowSlice = r.rowBytes
 			r.readSlice = r.readSlice[p+1:] // update read buffer slice

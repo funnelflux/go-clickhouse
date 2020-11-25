@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"math"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -333,6 +334,42 @@ func TestParseData(t *testing.T) {
 			inputtype: "LowCardinality(UInt64)",
 			inputdata: "123",
 			output:    uint64(123),
+		},
+		{
+			name:      "parse IPv4",
+			inputtype: "IPv4",
+			inputdata: "123.45.67.89",
+			output:    net.ParseIP("123.45.67.89").To4(),
+		},
+		{
+			name:          "parse IPv6 as IPv4",
+			inputtype:     "IPv4",
+			inputdata:     "2a02:2698:abcd:abcd:abcd:abcd:8888:5555",
+			failParseData: true,
+		},
+		{
+			name:      "parse nullable IPv4",
+			inputtype: "Nullable(IPv4)",
+			inputdata: "123.45.67.89",
+			output:    net.ParseIP("123.45.67.89").To4(),
+		},
+		{
+			name:      "parse IPv6",
+			inputtype: "IPv6",
+			inputdata: "2a02:2698:abcd:abcd:abcd:abcd:8888:5555",
+			output:    net.ParseIP("2a02:2698:abcd:abcd:abcd:abcd:8888:5555"),
+		},
+		{
+			name:      "parse IPv4 as IPv6",
+			inputtype: "IPv6",
+			inputdata: "123.45.67.89",
+			output:    net.ParseIP("0:0:0:0:0:ffff:7b2d:4359"),
+		},
+		{
+			name:      "parse nullable IPv4",
+			inputtype: "Nullable(IPv6)",
+			inputdata: "2a02:2698:abcd:abcd:abcd:abcd:8888:5555",
+			output:    net.ParseIP("2a02:2698:abcd:abcd:abcd:abcd:8888:5555"),
 		},
 	}
 

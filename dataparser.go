@@ -168,10 +168,13 @@ type ipv4Parser struct {
 }
 
 func (p *ipv4Parser) Parse(s io.RuneScanner) (driver.Value, error) {
-	buf := readRaw(s)
-	ip := net.ParseIP(buf.String())
+	str := readRaw(s).String()
+	ip := net.ParseIP(str)
+	if ip != nil {
+		ip = ip.To4()
+	}
 	if ip == nil {
-		return nil, fmt.Errorf("failed to read IPv4: %v", buf)
+		return nil, fmt.Errorf("failed to read IPv4: %s", str)
 	}
 	return ip, nil
 }
@@ -184,10 +187,13 @@ type ipv6Parser struct {
 }
 
 func (p *ipv6Parser) Parse(s io.RuneScanner) (driver.Value, error) {
-	buf := readRaw(s)
-	ip := net.ParseIP(buf.String())
+	str := readRaw(s).String()
+	ip := net.ParseIP(str)
+	if ip != nil {
+		ip = ip.To16()
+	}
 	if ip == nil {
-		return nil, fmt.Errorf("failed to read IPv6: %v", buf)
+		return nil, fmt.Errorf("failed to read IPv6: %s", str)
 	}
 	return ip, nil
 }
