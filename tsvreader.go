@@ -60,13 +60,13 @@ func (r *tsvReader) NextRow() bool {
 			return true
 		}
 
-		r.rowBytes = append(r.rowBytes, r.readSlice...) // write data from read buffer to row buffer
-		n, err := r.r.Read(r.readBuf[:])
-		r.readSlice = r.readBuf[0:n]
+		var offset = copy(r.readBuf[:], r.readSlice)
+		n, err := r.r.Read(r.readBuf[offset:])
+		r.readSlice = r.readBuf[0 : offset+n]
 
 		if err == io.EOF {
 			if n == 0 {
-				if len(r.rowBytes) > 0 {
+				if len(r.readSlice) > 0 {
 					r.err = fmt.Errorf("can not find newline for row #%d", r.row)
 				} else {
 					r.err = io.EOF
