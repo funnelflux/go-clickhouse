@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"errors"
 	assert "github.com/stretchr/testify/require"
 	"io"
 	"strings"
@@ -69,4 +70,30 @@ func TestTsvReader(t *testing.T) {
 		assert.Exactly(t, [][]string{{`a`, `\'b`}, {`'c`, `d`}, {`"\\e`, `f`}}, readAll(t, r))
 		assert.Exactly(t, io.EOF, r.Error())
 	})
+
+	t.Run("read buffer issue", func(t *testing.T) {
+		var r = &tsvReader{r: &chunkedReader{Chunks: []string{"a\tb\nc\td", "\ne\tf\n"}}}
+		assert.Exactly(t, [][]string{{`a`, `b`}, {`c`, `d`}, {`e`, `f`}}, readAll(t, r))
+		assert.Exactly(t, io.EOF, r.Error())
+	})
+}
+
+var _ io.Reader = (*chunkedReader)(nil)
+
+type chunkedReader struct {
+	Chunks    []string
+	nextChunk int
+}
+
+func (r *chunkedReader) Read(p []byte) (n int, err error) {
+	if r.nextChunk >= len(r.Chunks) {
+		return 0, io.EOF
+	}
+	var chunk = []byte(r.Chunks[r.nextChunk])
+	if len(p) < len(chunk) {
+		return 0, errors.New("chunk length is greater than read buffer length")
+	}
+	r.nextChunk++
+	copy(p[0:len(chunk)], chunk)
+	return len(chunk), nil
 }
